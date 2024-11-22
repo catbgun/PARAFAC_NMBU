@@ -2,15 +2,27 @@
 title: "241121_PARAFAC_NMBU"
 output: html_document
 date: "2024-11-21"
+editor_options: 
+  chunk_output_type: console
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-Here follows an attempt to analyse EEM data from NMBU, based on the script from the 1000 lakes. 
+Here follows an analysis of EEM data from NMBU, based on the script from the 1000 lakes. 
+The data consists of sampples from a lake:
+- 60 samples from the top
+- 60 samples from the bottom
  
 Follow this procedure: https://cran.r-project.org/web/packages/staRdom/vignettes/PARAFAC_analysis_of_EEM.html#raman-normalisation
+
+QUESTIONS to NMBU
+- negative abs-values, likely to influence?
+- instrumental correction? likely not necessary
+- there might be some signal in the blanks - influential?
+- no dilutions performed?
+- ok to cut the area with the lowest ex wavelengths?
 
 ```{r load required packages, include=FALSE}
 Packages <- c("staRdom", "dplyr", "tidyr", "data.table", "reshape")
@@ -23,7 +35,6 @@ cores <- detectCores(logical = FALSE)
 folder = "C:/Users/CBG/OneDrive - NIVA/1 Projects/NMBU_PARAFAC/PARAFAC_filer"
 eem_list <- eem_read(folder, import_function = "cary", recursive = TRUE)
 #eem_overview_plot(eem_list, spp=9, contour = TRUE)
-length(eem_list)
 
 #Absorbance data
 absorbance_dir="C:/Users/CBG/OneDrive - NIVA/1 Projects/NMBU_PARAFAC/Abs_GF_Data_parafac.csv" 
@@ -32,14 +43,17 @@ absy <- absorbance_read(absorbance_dir, order=TRUE)
 metatable = "C:/Users/CBG/OneDrive - NIVA/1 Projects/NMBU_PARAFAC/241121_NMBU_PARAFAC_Metadata.txt"
 meta <- read.table(metatable, header = TRUE, sep = "\t", dec = ".", row.names=1)
 
+length(eem_list)
+ncol(absy)
+nrow(meta)
 ```
-
 #1) Absorbance wavenegth correction
 ```{r}
 absorbance <- abs_blcor(absy,wlrange = c(680,700))
 ```
 
 #Check the data for inconsistencies 
+- seems ok
 ```{r Check the data for inconsistencies }
 length(eem_list)
 summary(eem_list)
@@ -50,8 +64,7 @@ problem <- eem_checkdata(eem_list,absorbance, metadata=meta)
 
 #2) Spectral correction with instrument file??
 #excorr file made from 3x rhodamineB at 550nm while the emcorr is fake to make the function run
-IS THIS NECESSARY??? CHECK!
-
+IS THIS NECESSARY??? CHECK! some instruments can do this automaticallye
 ```{r Spectral corrections}
 excorfile= "C:/Users/CBG/OneDrive - NIVA/1 Projects/1000 Lakes fEEM Data/DOM-1000-lake-PARAFAC/Data/RhodamineB_ex correction.txt"
 Excorr <- data.table::fread(excorfile)
@@ -63,42 +76,37 @@ eem_listc <- eem_spectral_cor(eem_list,Excorr, Emcorr)
 
 # 3) Blank subtraction. 
 ```{r Blank correction}
-#the following to fix the problem dicovered by the check above, need for interpolation
-#eem_list1 <- eem_extend2largest(eem_list, interpolation = 1, extend = FALSE, cores = cores)
-
 eemss <- eem_remove_blank(eem_list)
 length(eemss)
 #eem_overview_plot(eemss, spp=9, contour = TRUE)
 ```
+
 # 4) Inner filter effect correction using absorption data not exceeding 2.0 and any wavelength. 
 No abs data for blanks -> produces warnings
 Flere absverdier er negative - skaper det problemer?? 
 ```{r Correct for IFE}
-#eemssz <- eemss %>% eem_range(ex = c(250,Inf), em = c(0,580))
 eemsss <- eem_ife_correction(eemss,absorbance, cuvl = 1)
 #eem_overview_plot(eemsss, spp=9, contour = TRUE)
 ```
 #5) Raman normalization
+SJEKK HER HVORFOR ALTERNATIV METODE - OG HVA ER BEST HER?? NOE MED NEGATIVE ABS-VERDIER SOM ER TILFELLET HER
 ```{r}
-#eemsssy <- eem_raman_normalisation2(eemsss, blank = "blank")
-##eem_overview_plot(eemsssy, spp=9, contour = TRUE)
+eemsssy <- eem_raman_normalisation2(eemsss, blank = "blank")
+eem_overview_plot(eemsssy, spp=9, contour = TRUE)
 
 # ALTENRATIVE Raman normalization
 # because of negative values. Will try alternative-manual way
-raman1 = "C:/Users/CBG/OneDrive - NIVA/1 Projects/1000 Lakes fEEM Data/DOM-1000-lake-PARAFAC/201216_RamanManual3.txt"
-raman2 <- read.table(raman1, header = TRUE, sep = "\t", dec = ".", row.names=1) # load data
-
-eemsss2 <- eem_raman_normalisation2(eemsss, blank = raman2)
-
+#raman1 = "C:/Users/CBG/OneDrive - NIVA/1 Projects/1000 Lakes fEEM Data/DOM-1000-lake-PARAFAC/201216_RamanManual3.txt"
+#raman2 <- read.table(raman1, header = TRUE, sep = "\t", dec = ".", row.names=1) # load data
+#eemsss2 <- eem_raman_normalisation2(eemsss, blank = raman2)
 ```
 #6) Remove blanks from sample set
 ```{r}
-eemb <- eem_extract(eemsss2, c("nano", "miliq", "milliq", "mq", "blank", "Blank"),ignore_case = TRUE)
+eemb <- eem_extract(eemsssy, c("nano", "miliq", "milliq", "mq", "blank", "Blank"),ignore_case = TRUE)
 absorbance <- dplyr::select(absorbance, -matches("nano|miliq|milliq|mq|blank|Blank", ignore.case = TRUE))
 ```
-
 # 7) Remove and interpolate scattering
-raman1, "raman2, raleigh1, rauleigh2
+- seems ok with regards to the raman and reyighelys
 ```{r}
 remove_scatter <- c(TRUE, TRUE, TRUE, TRUE)
 remove_scatter_width <- c(13,12,12,13) #is either a number or a vector of wavelength width in nm
@@ -107,7 +115,7 @@ eemsc <- eem_rem_scat(eemb, remove_scatter = remove_scatter, remove_scatter_widt
 #interpolate the removed datapoints
 #different methods are available for interpretting .recommends to start with no 1
 eemint <- eem_interp(eemsc, type = 1, extend = FALSE)
-#eem_overview_plot(eemint, spp=9, contour = TRUE)
+eem_overview_plot(eemint, spp=9, contour = TRUE)
 ```
 # Looking at the blanks
 since the blanks are used both for subtraction and making Raman area, it is worth looking into. Some might be strange. 
@@ -116,11 +124,12 @@ There is signal at the shorter ex wavelengths and em 300-400 nm
 #looking at the blanks
 #Finding LOQ
 blanks <- eem_extract(eem_list, c("nano", "miliq", "milliq", "mq", "blank", "Blank"),keep = TRUE)
-#blanks2 <- eem_rem_scat(blanks, remove_scatter = remove_scatter, remove_scatter_width = remove_scatter_width)
-#blanks3<- eem_interp(blanks2, type = 1, extend = FALSE)
-#blanks4 <- blanks3 %>% 
-#  eem_range(ex = c(250,Inf), em = c(0,580))
-#eem_overview_plot(blanks4, spp=9, contour = TRUE)
+blanks2 <- eem_rem_scat(blanks, remove_scatter = remove_scatter, remove_scatter_width = remove_scatter_width)
+blanks3<- eem_interp(blanks2, type = 1, extend = FALSE)
+blanks4 <- blanks3 %>% 
+  eem_range(ex = c(250,Inf), em = c(0,580))
+
+eem_overview_plot(blanks4, spp=9, contour = TRUE)
 
 
 bix <- eem_biological_index(blanks)
@@ -164,128 +173,65 @@ toolow$sample
 length(toolow)
 ```
 
-# 8)correct for dilution using info from metadata
-```{r}
-dil_data <- meta["dilution"]
-eem_list2 <- eem_dilution(eemint, dil_data)
-length(eem_list2)
-```
-
 #print a summary table of the samples, ranges, and corrections that have been done
 ```{r}
-summary(eem_list2)
+summary(eemint)
 ```
-#remove STDs before having a visual inspection to look for noise before PARAFAC
+#kutter ex området til 250 nm for å fjerne støy
 ```{r}
-eem_list3 <- eem_extract(eem_list2, c("STD"),ignore_case = TRUE)
-length(eem_list3)
-eemlist4 <- eem_list3 %>% eem_range(ex = c(250,Inf), em = c(300,580))
-eem_overview_plot(eem_list4[1:12], spp=4, contour = TRUE)
-```
-could not see any leftover from scattering
-BUT did not look through the low DOC samples
-did not detect anything I can judge as noise to be removed - difficult to know
-
-Look at EEMs from days with blanks with and without signal?
-```{r}
-#without <- eem_extract(eem_list3, c( ""), keep=TRUE)
-
-#low doc samples (?)
-#without <- eem_extract(eem_list3, c("DOM11604", "DOM11501", "DOM11871", "DOM11892", "DOM11978",
-                        "DOM12016", "DOM12156", "DOM12506", "DOM13239", "DOM11605",
-                        "DOM12437", "DOM12897", "DOM11825", "DOM11431", "DOM13195",
-                        "DOM11336", "DOM11828", "DOM11861", "DOM12305", "DOM11920",
-                          "DOM12209", "DOM11904", "DOM12849", "DOM12505", "DOM11613",
-                          "DOM12173", "DOM12249", "DOM12329", "DOM11766", "DOM12571",
-                          "DOM11856", "DOM12258", "DOM12757", "DOM12909", "DOM11194",
-                          "DOM12575", "DOM12310", "DOM12439", "DOM12307", "DOM12572",
-                          "DOM12761", "DOM13238", "DOM12811", "DOM12504", "DOM11894",
-                          "DOM12306", "DOM12210", "DOM11959", "DOM11446", "DOM12017",
-                          "DOM12158", "DOM11895", "DOM12157", "DOM11752", "DOM11819",
-                          "DOM12335", "DOM11985", "DOM12561", "DOM13414", "DOM11981",
-                          "DOM11831", "DOM11499", "DOM11979", "DOM11850", "DOM12206",
-                          "DOM12079", "DOM11196", "DOM12937", "DOM11558", "DOM11481",
-                          "DOM13294", "DOM12251", "DOM11984", "DOM12253", "DOM11827",
-                          "DOM12256", "DOM11449", "DOM11918", "DOM12541", "DOM12172",
-                          "DOM13372", "DOM11190", "DOM11976", "DOM11480", "DOM11565",
-                          "DOM11888", "DOM11485", "DOM12905", "DOM11934", "DOM12309",
-                          "DOM12080", "DOM11859", "DOM12903", "DOM12205", "DOM12558",
-                          "DOM11852", "DOM11603", "DOM13233", "DOM12501", "DOM12899",
-                          "DOM12932", "DOM13286", "DOM12544", "DOM12336", "DOM11614",
-                          "DOM12941", "DOM12234", "DOM12538", "DOM12455", "DOM11317",
-                          "DOM11484", "DOM11917", "DOM12280", "DOM12901", "DOM12440",
-                          "DOM13284", "DOM11773", "DOM13327", "DOM13236", "DOM11902",
-                          "DOM11775", "DOM12543", "DOM11875"), keep=TRUE)
-#Low DOC
-#eem_list6 <- eem_list5 %>% 
-#eem_extract(sample = c("DOM11604", "DOM11501", "DOM11871", "DOM11892", "DOM11978",
-                        "DOM12016", "DOM12156", "DOM12506", "DOM13239", "DOM11605",
-                        "DOM12437", "DOM12897", "DOM11825", "DOM11431", "DOM13195",
-                        "DOM11336", "DOM11828", "DOM11861", "DOM12305", "DOM11920",
-                          "DOM12209", "DOM11904", "DOM12849", "DOM12505", "DOM11613",
-                          "DOM12173", "DOM12249", "DOM12329", "DOM11766", "DOM12571",
-                          "DOM11856", "DOM12258", "DOM12757", "DOM12909", "DOM11194",
-                          "DOM12575", "DOM12310", "DOM12439", "DOM12307", "DOM12572",
-                          "DOM12761", "DOM13238", "DOM12811", "DOM12504", "DOM11894",
-                          "DOM12306", "DOM12210", "DOM11959", "DOM11446", "DOM12017",
-                          "DOM12158", "DOM11895", "DOM12157", "DOM11752", "DOM11819",
-                          "DOM12335", "DOM11985", "DOM12561", "DOM13414", "DOM11981",
-                          "DOM11831", "DOM11499", "DOM11979", "DOM11850", "DOM12206",
-                          "DOM12079", "DOM11196", "DOM12937", "DOM11558", "DOM11481",
-                          "DOM13294", "DOM12251", "DOM11984", "DOM12253", "DOM11827",
-                          "DOM12256", "DOM11449", "DOM11918", "DOM12541", "DOM12172",
-                          "DOM13372", "DOM11190", "DOM11976", "DOM11480", "DOM11565",
-                          "DOM11888", "DOM11485", "DOM12905", "DOM11934", "DOM12309",
-                          "DOM12080", "DOM11859", "DOM12903", "DOM12205", "DOM12558",
-                          "DOM11852", "DOM11603", "DOM13233", "DOM12501", "DOM12899",
-                          "DOM12932", "DOM13286", "DOM12544", "DOM12336", "DOM11614",
-                          "DOM12941", "DOM12234", "DOM12538", "DOM12455", "DOM11317",
-                          "DOM11484", "DOM11917", "DOM12280", "DOM12901", "DOM12440",
-                          "DOM13284", "DOM11773", "DOM13327", "DOM13236", "DOM11902",
-                          "DOM11775", "DOM12543", "DOM11875")) 
-
-#Strange looking samples with low signal
-rare <- eem_extract(eem_list3, sample=c("DOM12916", "DOM12923", "DOM13091",
-                                    "DOM13130",
-                                    "DOM13137",
-                                    "DOM13445",
-                                    "DOM13586",
-                                    "DOM12994",
-                                    "DOM12998",
-                                    "DOM12999",
-                                    "DOM13000",
-                                    "DOM13023",
-                                    "DOM13071",
-                                    "DOM13440",
-                                    "DOM11978",
-                                    "DOM12027",
-                                    "DOM12029",
-                                    "DOM12036",
-                                    "DOM12036",
-                                    "DOM12042",
-                                    "DOM12049",
-                                    "DOM12050",
-                                    "DOM12864",
-                                    "DOM12811",
-                                    "DOM11379",
-                                    "DOM11979",
-                                    "DOM11604",
-                                    "DOM12039",
-                                    "DOM11194",
-                                    "DOM12584","DOM12619","DOM12158",
-                                    "DOM12251", "DOM12307",
-                                    "DOM11892",
-                                    "DOM12437",
-                                    "DOM11565",
-                                    "DOM11314",
-                                    "DOM11431"), keep = TRUE)
-
-length(rare)
-#stds <- eem_extract(eem_list2, sample= c("STD"), keep=TRUE)
-#blanks <- eem_extract(eemint, sample= c("Blank"),keep=TRUE)
-eem_overview_plot(rare, spp=4, contour = TRUE)
+eemint4 <- eemint %>% eem_range(ex = c(250,Inf), em = c(300,580))
+#eem_overview_plot(eem_list4[1:12], spp=4, contour = TRUE)
 ```
 
+# Peak picking
+- smooting can be performed prior to peak picking
+suggest to make one with and one without smoothing
+- from a quick look at BIX there are no big differences between the smoothed and the non-smoothed
+
+```{r peak picking}
+#WITHOUT SMOOTHING
+bix <- eem_biological_index(eemint4)
+coble_peaks <- eem_coble_peaks(eemint4)
+fi <- eem_fluorescence_index(eemint4)
+hix <- eem_humification_index(eemint4, scale = TRUE)
+
+indices_peaks <- bix %>%
+  full_join(coble_peaks, by = "sample") %>%
+  full_join(fi, by = "sample") %>%
+  full_join(hix, by = "sample")
+
+#combine with data and depth column from metadata
+met <- data.table::fread("C:/Users/CBG/OneDrive - NIVA/1 Projects/NMBU_PARAFAC/241121_NMBU_PARAFAC_Metadata.txt", sep = "\t")
+
+df_merge <- merge(indices_peaks, met, by = "sample", 
+                  all.x = TRUE) 
+
+write.csv(df_merge,"C:/Users/CBG/OneDrive - NIVA/1 Projects/NMBU_PARAFAC/Output/NMBU_indices and peaks_NOsmooth.csv", row.names = FALSE)
+```
+
+```{r smoothing and then peaks}
+#SMOOTHING
+#eemint4smooth <- eem_smooth(eemint4, n = 4, cores = cores)
+
+#WITH SMOOTHING
+#bix <- eem_biological_index(eemint4smooth)
+#coble_peaks <- eem_coble_peaks(eemint4smooth)
+#fi <- eem_fluorescence_index(eemint4smooth)
+#hix <- eem_humification_index(eemint4smooth, scale = TRUE)
+
+#indices_peaks_smooth <- bix %>%
+#  full_join(coble_peaks, by = "sample") %>%
+#  full_join(fi, by = "sample") %>%
+#  full_join(hix, by = "sample")
+
+#df_mergeS <- merge(indices_peaks_smooth, met, by = "sample", 
+                  all.x = TRUE) 
+
+#write.csv(df_mergeS,"C:/Users/CBG/OneDrive - NIVA/1 Projects/NMBU_PARAFAC/Output/NMBU_indices and peaks_SMOOTH.csv", row.names = FALSE)
+```
+
+
+HAVE NOT DONE THE FOLLOWING, SKIPPED TO #11)
 # 10)Visually find irregularities manually replac e by NA and interpolate
 Found several with signal in low bottom left corner. Contamination? Also a few with strange looking signal, but most likely signal close to zero. 
 ```{r try to remove "protein-like" contamination}
@@ -294,155 +240,7 @@ Found several with signal in low bottom left corner. Contamination? Also a few w
 #eemlist3x <- eem_list3 %>% eem_range(ex = c(250,Inf), em = c(0,580))
 ```
 
-# 11) Remove those with extreme chemistry and/or very low DOC
-Decide to remove samples. Also remove sample DOM 12729? which was not correctly diluted at analysis. 
-
-#should have one inspection now again after removing
-```{r}
-eem_overview_plot(eem_list7, spp=9, contour = TRUE)
-length(eem_list8)
-```
-
-BRUK DENNE:
-```{r}
-#FROM OLD SCRIPT
-eem_list4x <- eemlist4 %>% 
-  eem_extract(sample = c("DOM13465", "DOM12725", "DOM12729", "DOM13458", "DOM13474"))
-eem_list5 <- eem_list4x %>% 
-  eem_extract(sample = c("DOM11825", "DOM11861", "DOM11828", "DOM12209", "DOM11824", "DOM11766")) 
-length(eem_list5)
-
-#9.3 Remove samples with low DOC, with peak a < LOQ of peak a blanks
-eem_list6 <- eem_list5 %>% 
-  eem_extract(sample = c("DOM11604", "DOM11501", "DOM11871", "DOM11892", "DOM11978",
-                        "DOM12016", "DOM12156", "DOM12506", "DOM13239", "DOM11605",
-                        "DOM12437", "DOM12897", "DOM11825", "DOM11431", "DOM13195",
-                        "DOM11336", "DOM11828", "DOM11861", "DOM12305", "DOM11920",
-                          "DOM12209", "DOM11904", "DOM12849", "DOM12505", "DOM11613",
-                          "DOM12173", "DOM12249", "DOM12329", "DOM11766", "DOM12571",
-                          "DOM11856", "DOM12258", "DOM12757", "DOM12909", "DOM11194",
-                          "DOM12575", "DOM12310", "DOM12439", "DOM12307", "DOM12572",
-                          "DOM12761", "DOM13238", "DOM12811", "DOM12504", "DOM11894",
-                          "DOM12306", "DOM12210", "DOM11959", "DOM11446", "DOM12017",
-                          "DOM12158", "DOM11895", "DOM12157", "DOM11752", "DOM11819",
-                          "DOM12335", "DOM11985", "DOM12561", "DOM13414", "DOM11981",
-                          "DOM11831", "DOM11499", "DOM11979", "DOM11850", "DOM12206",
-                          "DOM12079", "DOM11196", "DOM12937", "DOM11558", "DOM11481",
-                          "DOM13294", "DOM12251", "DOM11984", "DOM12253", "DOM11827",
-                          "DOM12256", "DOM11449", "DOM11918", "DOM12541", "DOM12172",
-                          "DOM13372", "DOM11190", "DOM11976", "DOM11480", "DOM11565",
-                          "DOM11888", "DOM11485", "DOM12905", "DOM11934", "DOM12309",
-                          "DOM12080", "DOM11859", "DOM12903", "DOM12205", "DOM12558",
-                          "DOM11852", "DOM11603", "DOM13233", "DOM12501", "DOM12899",
-                          "DOM12932", "DOM13286", "DOM12544", "DOM12336", "DOM11614",
-                          "DOM12941", "DOM12234", "DOM12538", "DOM12455", "DOM11317",
-                          "DOM11484", "DOM11917", "DOM12280", "DOM12901", "DOM12440",
-                          "DOM13284", "DOM11773", "DOM13327", "DOM13236", "DOM11902",
-                          "DOM11775", "DOM12543", "DOM11875"))
-
-length(eem_list6)
-#Fjerne andre som ikke skal være med
-exclude <- list("ex" = c(),
-                "em" = c(),
-                "sample" = c("DOM13331", "DOM11314",
-                             "DOM11394", "DOM11392", "DOM11372"))
-eem_list7 <- eem_exclude(eem_list6, exclude)
-length(eem_list7)
-```
-
-Try to find stuff to remove, after feedback from Dolly
-Look at the samples 
-```{r}
-#have a look at the samples in groups depending on TOC concentration
-#NOW have a look at the samples in groups based on TOC
-#Samples with DOC < 1 mg/L: 
-low_TOC <- eem_list7 %>% 
-  eem_extract(sample = c("DOM11825", "DOM11856", "DOM12209", "DOM12305", "DOM11861", "DOM11871", "DOM11752", "DOM12210",
-                         "DOM11888", "DOM11959", "DOM12761", "DOM11604", "DOM12307", "DOM12249", "DOM11819",
-                         "DOM12897", "DOM11336", "DOM11766", "DOM11828", "DOM12306", "DOM12558",
-                         "DOM11917", "DOM12017", "DOM11850", "DOM12016", "DOM12258", "DOM11892",
-                         "DOM12173", "DOM12206", "DOM12251", "DOM12506", "DOM12561", "DOM11894",
-                         "DOM12905", "DOM12158", "DOM11918", "DOM12310", "DOM12329", "DOM11613",
-                         "DOM11605", "DOM12439", "DOM12909", "DOM11978", "DOM12505", "DOM12932",
-                         "DOM11904", "DOM12571", "DOM11824", "DOM12336", "DOM12544", "DOM13414",
-                         "DOM12901", "DOM12941", "DOM12253", "DOM11934", "DOM13286", "DOM12541",
-                         "DOM12899", "DOM12937", "DOM11984", "DOM11859", "DOM11979", "DOM12501",
-                         "DOM11901", "DOM12455", "DOM12335", "DOM11831", "DOM11501", "DOM13233",
-                         "DOM11773", "DOM13294", "DOM12483", "DOM11827", "DOM13372", "DOM12445",
-                         "DOM12309", "DOM12757", "DOM13327", "DOM13239", "DOM11431", "DOM12486",
-                         "DOM12157", "DOM11481", "DOM11559", "DOM12205", "DOM12437", "DOM13284",
-                         "DOM11981", "DOM11852", "DOM11976", "DOM11190", "DOM11895", "DOM11499",
-                         "DOM12849", "DOM12440", "DOM12572", "DOM11902", "DOM12497", "DOM11920",
-                         "DOM12234", "DOM12256", "DOM11985", "DOM11775", "DOM13331", "DOM11482",
-                         "DOM11480", "DOM12903", "DOM11763", "DOM11603", "DOM11446", "DOM11776",
-                         "DOM12587", "DOM11196", "DOM11875", "DOM13238", "DOM12172", "DOM12469",
-                         "DOM12485", "DOM13557", "DOM11757", "DOM11621", "DOM12504", "DOM13556",
-                         "DOM11786", "DOM11558", "DOM13042", "DOM12280", "DOM11449", "DOM12538",
-                         "DOM13317", "DOM11194", "DOM13195", "DOM11565", "DOM11614", "DOM11960",
-                         "DOM11949", "DOM13295", "DOM11840", "DOM12509", "DOM11927", "DOM11915",
-                         "DOM11961", "DOM11485", "DOM12575", "DOM11933", "DOM11317", "DOM12758",
-                         "DOM12156", "DOM13374", "DOM12079", "DOM13373", "DOM11447", "DOM12543",
-                         "DOM13235", "DOM11950", "DOM12343", "DOM12811", "DOM12260", "DOM13297",
-                         "DOM13290", "DOM12614", "DOM12662", "DOM11314", "DOM11484", "DOM12682",
-                         "DOM13292"), keep = TRUE) 
-
-#samples 1 tom 3.5 mg/L
-low2_TOC <- eem_list7 %>% 
-  eem_extract(sample = c("DOM11631", "DOM13115", "DOM12935", "DOM12001", "DOM11590", "DOM12080",
-"DOM12471", "DOM13165", "DOM13236", "DOM13329", "DOM11372", "DOM13435", "DOM12666", "DOM11787",
-"DOM12195", "DOM13193", "DOM11334", "DOM11445", "DOM11906", "DOM12259", "DOM12867", "DOM13547",
-"DOM13554", "DOM11536", "DOM12906", "DOM13262", "DOM12480", "DOM12664", "DOM13186", "DOM12641",
-"DOM12864", "DOM11311", "DOM11783", "DOM12192", "DOM12081", "DOM12386", "DOM13394", "DOM11739",
-"DOM11870", "DOM12097", "DOM12815", "DOM11608", "DOM11943", "DOM12000", "DOM13314", "DOM11339",
-"DOM11313", "DOM13311", "DOM13124", "DOM13550", "DOM11593", "DOM12101", "DOM12686", "DOM12813",
-"DOM13138", "DOM13335", "DOM13313", "DOM11401", "DOM11429", "DOM13037", "DOM13121", "DOM12640",
-"DOM11534", "DOM11441", "DOM12425", "DOM13548", "DOM12055", "DOM12095", "DOM11549", "DOM12577",
-"DOM13555", "DOM11756", "DOM11537", "DOM11993", "DOM12089", "DOM13332", "DOM12933", "DOM11533",
-"DOM12067", "DOM12478", "DOM11193", "DOM11496", "DOM13263", "DOM11743", "DOM11740", "DOM13017",
-"DOM12126", "DOM11394", "DOM12291", "DOM13549", "DOM11502", "DOM12117", "DOM12818", "DOM12940",
-"DOM13484", "DOM13342", "DOM12812", "DOM11195", "DOM12622", "DOM13109", "DOM12316", "DOM13018",
-"DOM12763", "DOM12777", "DOM12979", "DOM11552", "DOM11528", "DOM12629", "DOM13266", "DOM12096",
-"DOM13536", "DOM13189", "DOM12449", "DOM13600", "DOM11414", "DOM12978", "DOM13368", "DOM13398",
-"DOM12446", "DOM12007", "DOM12262", "DOM12781", "DOM12839", "DOM13422", "DOM11816", "DOM12185",
-"DOM13343", "DOM12695", "DOM12413", "DOM13287", "DOM12984", "DOM13243", "DOM12059", "DOM12277",
-"DOM12851", "DOM12454", "DOM12821", "DOM12005", "DOM13476", "DOM12765", "DOM12168"), keep = TRUE) 
-
-#Samples TOC 3.6 to 8.8 mg/L
-mid_TOC <- eem_list7 %>% 
-  eem_extract(sample = c("DOM13602", "DOM11846", "DOM12180", "DOM12847", "DOM13137", "DOM12201",
-"DOM13187", "DOM11186", "DOM12473", "DOM12784", "DOM12344", "DOM11392", "DOM12150", "DOM12716",
-"DOM12226", "DOM12229", "DOM12535", "DOM12962", "DOM13057", "DOM12267", "DOM11389", "DOM12282",
-"DOM13511", "DOM13430", "DOM12865", "DOM13211", "DOM13143", "DOM12603", "DOM11382", "DOM12743",
-"DOM12146", "DOM11952", "DOM12823", "DOM13523", "DOM11385", "DOM12660", "DOM12820", "DOM13154",
-"DOM13337", "DOM11399", "DOM13428", "DOM13598", "DOM12613", "DOM11413", "DOM11874", "DOM12582",
-"DOM12858", "DOM11404", "DOM11407", "DOM13094", "DOM12719", "DOM12616", "DOM13537", "DOM13107",
-"DOM12423", "DOM13144", "DOM11376", "DOM12628", "DOM12290", "DOM12529", "DOM12925", "DOM12700",
-"DOM11393", "DOM12862", "DOM12917", "DOM13039", "DOM13242", "DOM11506", "DOM13470", "DOM12598",
-"DOM12967", "DOM12029", "DOM12650", "DOM13491", "DOM12742", "DOM12039", "DOM13156", "DOM12860",
-"DOM13597", "DOM11378", "DOM12100", "DOM11575", "DOM13111", "DOM11571", "DOM12627", "DOM12782",
-"DOM13482", "DOM12785", "DOM11188", "DOM12027", "DOM13036", "DOM12528", "DOM13439", "DOM12773",
-"DOM12584", "DOM12114", "DOM12841", "DOM13494", "DOM13586", "DOM13692", "DOM13019", "DOM12479",
-"DOM13513", "DOM12964", "DOM13123", "DOM11409", "DOM12966", "DOM12725", "DOM12273", "DOM13163",
-"DOM12619", "DOM13212", "DOM12151", "DOM13492", "DOM12042", "DOM12050", "DOM13079", "DOM13589",
-"DOM12916", "DOM13437", "DOM12036", "DOM12778", "DOM12931", "DOM13196", "DOM12086", "DOM12579",
-"DOM11395", "DOM12832", "DOM13459", "DOM13091", "DOM12983", "DOM12693", "DOM12727"), keep = TRUE) 
-
-#Samples TOC 9 to 26.4 mg/L
-high_TOC <- eem_list7 %>% 
-  eem_extract(sample = c("DOM12924", "DOM13440", "DOM13453", "DOM13000", "DOM12734", "DOM12636",
-    "DOM11397", "DOM11748", "DOM12956", "DOM12053", "DOM12617", "DOM12430", "DOM13458", "DOM12770",
-    "DOM11405", "DOM12929", "DOM13131", "DOM13449", "DOM12602", "DOM12955", "DOM12735", "DOM13531",
-    "DOM13469", "DOM13130", "DOM12523", "DOM13051", "DOM12918", "DOM12957", "DOM11381", "DOM11498",
-    "DOM13443", "DOM13157", "DOM13617", "DOM13512", "DOM12923", "DOM11379", "DOM13089", "DOM13023",
-    "DOM13090", "DOM12980", "DOM13445", "DOM12710", "DOM13002", "DOM13155", "DOM12999", "DOM13071",
-    "DOM13069", "DOM12646", "DOM13050", "DOM13471", "DOM13474", "DOM13466", "DOM12994", "DOM12998",
-    "DOM13465", "DOM13070", "DOM12049", "DOM12702", "DOM12729", "DOM13451", "DOM12704", "DOM13010"), keep = TRUE) 
-    
-eem_overview_plot(mid_TOC, spp=9, contour = TRUE)
-```
-
-Remove noise, with focus on 2 region
-
+Have not been done: Remove noise, with focus on 2 region
 ```{r}
 eem_list7x <- eem_list7 %>%
   eem_setNA(sample = "DOM11950", ex = 250:275, em=300:350, interpolate = TRUE) %>%
@@ -459,9 +257,6 @@ eem_list7x <- eem_list7 %>%
 
 ```
 
-
-23070: To find the right sample selection. First try eemOLD and then eem_list7
-
 #11) First attempt PARAFAC model
  minimum and maximum of numbers of components
 ```{r}
@@ -474,50 +269,41 @@ ctol <- 10^-6 # tolerance in PARAFAC analysis
 ```
 
 ```{r}
-# calculating PARAFAC models, one for each number of components
-#pf1 <- eem_parafac(eem_list7, comps = seq(dim_min,dim_max), normalise = FALSE, const = c("uncons", "uncons", "uncons"), maxit = maxit, nstart = nstart, ctol = ctol, cores = cores)
-#eempf_compare(pf1, contour = TRUE)
-
-# same model but using non-negative constraints
-#CMLS::const()
-
-pf2 <- eem_parafac(eem_list7, comps = seq(dim_min,dim_max), normalise = TRUE, const = c("nonneg", "nonneg", "nonneg"), maxit = maxit, nstart = nstart, ctol = ctol, cores = cores)
-eempf_compare(pf2, contour = TRUE)
+pf1 <- eem_parafac(eemint4, comps = seq(dim_min,dim_max), normalise = FALSE, const = c("nonneg", "nonneg", "nonneg"), maxit = maxit, nstart = nstart, ctol = ctol, cores = cores)
+eempf_compare(pf1, contour = TRUE)
 ```
 # rescale B and C modes to a maximum fluorescence of 1 for each component
 ```{r}
-#pf1 <- lapply(pf1, eempf_rescaleBC, newscale = "Fmax")
-#pf1n <- lapply(pf1, eempf_rescaleBC, newscale = "Fmax")
-#eempf_compare(pf1n, contour = TRUE)
-pf2n <- lapply(pf2, eempf_rescaleBC, newscale = "Fmax")
-eempf_compare(pf2n, contour = TRUE)
+pf1n <- lapply(pf1, eempf_rescaleBC, newscale = "Fmax")
+eempf_compare(pf1n, contour = TRUE)
 ```
-Now the model looks slightly different from before. The 3 comp model with nonneg restrain. 
-#To see the plots individually
-#eempf_fits and eempf_plot_comps
+- har muligens mest tro på modellen med 5 komponenter
+
+From first look it appears to be 4 clean and likely components. There might be 5 or 6 but then it looks like there is something needing cleaning. Or, try with higher PARAFAC resolution? from the guide online we can select 5 or 6. 
 
 #check for correlation between the components
 #for a wide range of DOC values, correlation is likely. Then normalise
 #The number indicates which model to look at
+- there appear to be correlation between the components so selects normalisation
 ```{r check for correlation}
-eempf_cortable(pf2n[[1]], normalisation = FALSE)
-eempf_corplot(pf2n[[1]], progress = FALSE, normalisation = FALSE)
+eempf_cortable(pf1n[[3]], normalisation = FALSE)
+eempf_corplot(pf1n[[3]], progress = FALSE, normalisation = FALSE)
 ```
-Definitely needed to normalise
+
 #Normalise to reduce correlation between components
 #wide range of DOC among samples normally require this step
 ```{r normalise}
-pf3 <- eem_parafac(eem_list7, comps = seq(dim_min,dim_max), normalise = TRUE, const = c("nonneg", "nonneg", "nonneg"), maxit = maxit, nstart = nstart, ctol = ctol, cores = cores)
+pf2 <- eem_parafac(eemint4, comps = seq(dim_min,dim_max), normalise = TRUE, const = c("nonneg", "nonneg", "nonneg"), maxit = maxit, nstart = nstart, ctol = ctol, cores = cores)
 # rescale B and C modes
-pf3x <- lapply(pf3, eempf_rescaleBC, newscale = "Fmax")
-eempf_compare(pf3x, contour = TRUE, normalise=FALSE)
+pf2nx <- lapply(pf2, eempf_rescaleBC, newscale = "Fmax")
+eempf_compare(pf2nx, contour = TRUE, normalise=FALSE)
 ```
 
 #Set normalisation TRUE if you want to see the actual data
 ```{r}
-eempf_cortable(pf3x[[1]], normalisation = FALSE)
-eempf_corplot(pf3x[[1]], progress = FALSE, normalisation = FALSE)
-eempf_compare(pf3x, contour = TRUE, normalisation=FALSE)
+eempf_cortable(pf2nx[[3]], normalisation = FALSE)
+eempf_corplot(pf2nx[[3]], progress = FALSE, normalisation = FALSE)
+#eempf_compare(pf2nx, contour = TRUE, normalisation=FALSE)
 #eempf_plot_comps(pf2, contour = TRUE, type = 1)
 ```
 
@@ -527,24 +313,54 @@ eempf_compare(pf3x, contour = TRUE, normalisation=FALSE)
 - saved in exclude, can be used to start over again with eem_list_ex <- eem_list %>% eem_exclude(exclude) above
 - NOt all potential outliers from leverage plot are potential outliers from the other plot. 
 ```{r calculate leverage}
-cpl <- eempf_leverage(pf3[[2]])
-cpl <- eempf_leverage(pf3n[[2]])
+cpl <- eempf_leverage(pf2nx[[3]])
+#cpl <- eempf_leverage(pf3n[[2]])
 
 eempf_leverage_plot(cpl,qlabel=0.1)
 #exclude <- eempf_leverage_ident(cpl,qlabel=0.1)
+
 ```
+
+should remove sample obenGF317!
 
 ```{r PLot leverage of potential outliers}
-eempf_residuals_plot(pf2[[4]], eem_list4, residuals_only = TRUE, select = c("DOM11856","DOM12210"), spp = 6, cores = cores, contour = TRUE)
+eempf_residuals_plot(pf2nx[[3]], eemint4, residuals_only = TRUE, select = c("obenGF317"), spp = 6, cores = cores, contour = TRUE)
+
+# samples, excitation and emission wavelengths to exclude, makes sense after calculation of leverage
+exclude <- list("ex" = c(),
+                "em" = c(),
+                "sample" = c("obenGF317")
+)
+
+# exclude outliers if neccessary. if so, restart analysis
+eem_list_ex <- eem_exclude(eemint4, exclude)
+
 ```
 
+#remake model - quick
+```{r}
+pf3 <- eem_parafac(eem_list_ex, comps = seq(dim_min,dim_max), normalise = TRUE, const = c("nonneg", "nonneg", "nonneg"), maxit = maxit, nstart = nstart, ctol = ctol, cores = cores)
+# rescale B and C modes
+pf3nx <- lapply(pf3, eempf_rescaleBC, newscale = "Fmax")
+eempf_compare(pf3nx, contour = TRUE, normalise=FALSE)
+
+cpl <- eempf_leverage(pf3nx[[3]])
+
+eempf_leverage_plot(cpl,qlabel=0.1)
+#exclude <- eempf_leverage_ident(cpl,qlabel=0.1) #sample obenGF164?
+eempf_residuals_plot(pf3nx[[3]], eem_list_ex, residuals_only = TRUE, select = c("obenGF164"), spp = 6, cores = cores, contour = TRUE)
+
+```
+beholder obenGF164 for nå! eventuelt revisit
+
 #Remake the PARAFAC MODEL
+FORTSETT HER!!!! GIR DE MENING ELLER BØR DET RYDDES OPP MER? F EKS SE TILBAKE PÅ SIGNAL I BLANKENE OG PÅ RESIDUALS. KAN VÆRE BEHOV FOR LITT MER OPPRYDNING. SE NÆRMERE PÅ PRØVENE. 
 ```{r Re-make PARAFAC model}
-ctol <- 10^-10     # decrease tolerance in PARAFAC analysis
-nstart = 50        # increase number of random starts
+ctol <- 10^-8     # decrease tolerance in PARAFAC analysis
+nstart = 20        # increase number of random starts
 maxit = 10000      # increase number of maximum interations
 
-pf4fc <- eem_parafac(eem_list7, comps = 3, normalise = TRUE, const = c("nonneg", "nonneg", "nonneg"), maxit = maxit, nstart = nstart, ctol = ctol, cores = cores, output="all")
+pf4fc <- eem_parafac(eem_list_ex, comps = 5, normalise = TRUE, const = c("nonneg", "nonneg", "nonneg"), maxit = maxit, nstart = nstart, ctol = ctol, cores = cores, output="all")
 pf4fnc <- lapply(pf4fc, eempf_rescaleBC, newscale = "Fmax")
 eempf_compare(pf4fnc, contour = TRUE, normalise=FALSE)
 
@@ -572,14 +388,14 @@ eempf_comp_load_plot(pf4fnc[[1]], contour = TRUE)
 eempf_convergence(pf4fnc[[1]])
 
 #plot residuals - working?
-eempf_residuals_plot(pf4fnc[[1]], eem_list7, select = eem_names(eem_list7)[10:14], cores = cores, contour = TRUE)
+eempf_residuals_plot(pf4fnc[[1]], eem_list_ex, select = eem_names(eem_list_ex)[10:14], cores = cores, contour = TRUE) #HER ER DET OGSÅ VERDT Å TA EN EKSTRA TITT!!! SER UT SOM EN DEL RESIDUALS OG KANSKJE COMP5 IKKE ER EKTE?
 
 #Plot the resulting components and loadings
 eempf_comp_load_plot(pf4fc[[1]], contour = TRUE)
 #eempf_residuals_plot(pf4f[[1]], eem_list6, cores = cores, contour = TRUE)
 
 #SPlit-half analysis
-sh <- splithalf(eem_list7, 3, normalise = TRUE, rand = TRUE, cores = cores, nstart = nstart, maxit = maxit, ctol = ctol)
+sh <- splithalf(eem_list_ex, 5, normalise = TRUE, rand = TRUE, cores = cores, nstart = nstart, maxit = maxit, ctol = ctol) #HER MÅ DET OGSÅ VURDERES!
 splithalf_plot(sh)
 
 #Tucker’s congruency coefficient 
