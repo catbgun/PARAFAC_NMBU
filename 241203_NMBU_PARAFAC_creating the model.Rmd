@@ -42,23 +42,32 @@ Samples looking a bit strange, something around 400nm/400nm. Will it affect the 
 -untenGF197
 -untenGF167
 
+
+Taking a look at the samples with strange signal at around ex=400 nm and em= 425nm
+Tried to remove and interpolate the region, but did not managage... This region was later found to influence the model components so should be removed. Consider also other regions. 
 ```{r remove noise at around 400/400}
-eem_list %>% 
+#taking a look at those samples with 
+eemint4 %>% 
   eem_extract(sample = c("untenGF97", "untenGF99", "untenGF88", "untenGF69", "untenGF68", "untenGF48", "untenGF317", "untenGF297", "untenGF288", "untenGF28", "untenGF277", "untenGF268", "untenGF257", "untenGF239", "untenGF237", "untenGF217", "untenGF198", "untenGF168", "untenGF167", "untenGF148", "untenGF139", "untenGF128", "untenGF114", "untenGF117",
                          "obenGF317", "obenGF297", "obenGF197", "obenGF167"), keep = TRUE) %>%
   ggeem(contour = TRUE)
 
-eem_list <- eemint4 %>%
-  eem_setNA(ex = 375:430, em = 400:430, interpolate = TRUE) 
 
-eem_overview_plot(eem_list, spp=9, contour = TRUE)
-length(eem_list)
+eem_list <- eemint4 %>%
+  eem_setNA(sample = c("untenGF97", "untenGF99", "untenGF88", "untenGF69", "untenGF68", "untenGF48", "untenGF317", "untenGF297", "untenGF288", "untenGF28", "untenGF277", "untenGF268", "untenGF257", "untenGF239", "untenGF237", "untenGF217", "untenGF198", "untenGF168", "untenGF167", "untenGF148", "untenGF139", "untenGF128", "untenGF114", "untenGF117",
+                         "obenGF317", "obenGF297", "obenGF197", "obenGF167"), ex = 375:430, em= 400:450, interpolate = FALSE) %>%
+  eem_setNA(em= 400:450, interpolate = TRUE)
+
+eem_list %>% 
+  eem_extract(sample = c("untenGF97", "untenGF99", "untenGF88", "untenGF69", "untenGF68", "untenGF48", "untenGF317", "untenGF297", "untenGF288", "untenGF28", "untenGF277", "untenGF268", "untenGF257", "untenGF239", "untenGF237", "untenGF217", "untenGF198", "untenGF168", "untenGF167", "untenGF148", "untenGF139", "untenGF128", "untenGF114", "untenGF117",
+                         "obenGF317", "obenGF297", "obenGF197", "obenGF167"), keep = TRUE) %>%
+  ggeem(contour = TRUE) 
+
 ```
 
 
-
 # 1) First attempt PARAFAC model
-minimum and maximum of numbers of components
+First attempt to find approximate number of components before a more refined model is created. 
 ```{r}
 dim_min <- 3
 dim_max <- 7
@@ -68,20 +77,21 @@ maxit = 5000 # maximum number of iterations in PARAFAC analysis
 ctol <- 10^-6 # tolerance in PARAFAC analysis
 ```
 
+Create PARAFAC moodel with non-negative constraint. 
 ```{r}
-pf1 <- eem_parafac(eemint4, comps = seq(dim_min,dim_max), normalise = FALSE, const = c("nonneg", "nonneg", "nonneg"), maxit = maxit, nstart = nstart, ctol = ctol, cores = cores)
+pf1 <- eem_parafac(eem_list, comps = seq(dim_min,dim_max), normalise = FALSE, const = c("nonneg", "nonneg", "nonneg"), maxit = maxit, nstart = nstart, ctol = ctol, cores = cores)
 eempf_compare(pf1, contour = TRUE)
 ```
 
 From the model fit: 4 components or more
 Visual inspection of the components is easier in the normalised version next
-
 # rescale B and C modes to a maximum fluorescence of 1 for each component
 ```{r}
 pf1n <- lapply(pf1, eempf_rescaleBC, newscale = "Fmax")
 eempf_compare(pf1n, contour = TRUE)
 ```
 
+- from the excitation and emission spectra, there appear to be some noise? 
 - looks like there might be some strange signal in the 400/400 region for some of the components. Perhaps worth going back to remove that region. 
 - several aspects with the excitation and emission spectral lines that do not make sense. May need to go back to clean up. Or may improve with a more refined model. 
 
@@ -93,11 +103,12 @@ eempf_compare(pf1n, contour = TRUE)
 eempf_cortable(pf1n[[3]], normalisation = FALSE)
 eempf_corplot(pf1n[[3]], progress = FALSE, normalisation = FALSE)
 ```
+- high correlation between some of the components, normalisation should be done
 
 #Normalise to reduce correlation between components
 #wide range of DOC among samples normally require this step
 ```{r normalise}
-pf2 <- eem_parafac(eemint4, comps = seq(dim_min,dim_max), normalise = TRUE, const = c("nonneg", "nonneg", "nonneg"), maxit = maxit, nstart = nstart, ctol = ctol, cores = cores)
+pf2 <- eem_parafac(eem_list, comps = seq(dim_min,dim_max), normalise = TRUE, const = c("nonneg", "nonneg", "nonneg"), maxit = maxit, nstart = nstart, ctol = ctol, cores = cores)
 # rescale B and C modes
 pf2nx <- lapply(pf2, eempf_rescaleBC, newscale = "Fmax")
 eempf_compare(pf2nx, contour = TRUE, normalise=FALSE)
@@ -126,9 +137,10 @@ eempf_leverage_plot(cpl,qlabel=0.1)
 ```
 
 should remove sample obenGF317!
-  
-  ```{r PLot leverage of potential outliers}
-eempf_residuals_plot(pf2nx[[3]], eemint4, residuals_only = TRUE, select = c("obenGF317"), spp = 6, cores = cores, contour = TRUE)
+additional samples or wavelengths that should be removed?
+
+```{r r PLot leverage of potential outliers}
+eempf_residuals_plot(pf2nx[[3]], eem_list, residuals_only = TRUE, select = c("obenGF317"), spp = 6, cores = cores, contour = TRUE)
 
 # samples, excitation and emission wavelengths to exclude, makes sense after calculation of leverage
 exclude <- list("ex" = c(),
@@ -137,9 +149,9 @@ exclude <- list("ex" = c(),
 )
 
 # exclude outliers if neccessary. if so, restart analysis
-eem_list_ex <- eem_exclude(eemint4, exclude)
-
+eem_list_ex <- eem_exclude(eem_list, exclude)
 ```
+
 
 #remake model - quick
 ```{r}
@@ -149,8 +161,8 @@ pf3nx <- lapply(pf3, eempf_rescaleBC, newscale = "Fmax")
 eempf_compare(pf3nx, contour = TRUE, normalise=FALSE)
 
 cpl <- eempf_leverage(pf3nx[[3]])
-
 eempf_leverage_plot(cpl,qlabel=0.1)
+
 #exclude <- eempf_leverage_ident(cpl,qlabel=0.1) #sample obenGF164?
 eempf_residuals_plot(pf3nx[[3]], eem_list_ex, residuals_only = TRUE, select = c("obenGF164"), spp = 6, cores = cores, contour = TRUE)
 
@@ -158,7 +170,8 @@ eempf_residuals_plot(pf3nx[[3]], eem_list_ex, residuals_only = TRUE, select = c(
 beholder obenGF164 for nå! eventuelt revisit
 
 #Remake the PARAFAC MODEL
-FORTSETT HER!!!! GIR DE MENING ELLER BØR DET RYDDES OPP MER? F EKS SE TILBAKE PÅ SIGNAL I BLANKENE OG PÅ RESIDUALS. KAN VÆRE BEHOV FOR LITT MER OPPRYDNING. SE NÆRMERE PÅ PRØVENE. 
+- likely need for more cleanup? 
+- the excitation and emission lines does not look right.. 
 ```{r Re-make PARAFAC model}
 ctol <- 10^-8     # decrease tolerance in PARAFAC analysis
 nstart = 20        # increase number of random starts
@@ -170,7 +183,7 @@ eempf_compare(pf4fnc, contour = TRUE, normalise=FALSE)
 
 summary(pf4fnc)
 #something on the importance of each component
-b <- eempf_varimp(pf4fnc[[1]], eem_list7, cores = 2)
+b <- eempf_varimp(pf4fnc[[1]], eem_list_ex, cores = cores)
 b
 
 #eempf_comp_load_plot(pf4fnc[[1]], contour = TRUE)

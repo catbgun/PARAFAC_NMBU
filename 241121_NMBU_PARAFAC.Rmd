@@ -83,7 +83,7 @@ nrow(meta)
 ```{r Blank correction, message = FALSE, fig.cap="EEMs blank corrected"}
 eemss <- eem_remove_blank(eem_list)
 length(eemss)
-eem_overview_plot(eemss[1:9], spp=9, contour = TRUE)
+#eem_overview_plot(eemss[1:9], spp=9, contour = TRUE)
 ```
 
 # 4) Inner filter effect correction using absorption data 
@@ -91,14 +91,14 @@ eem_overview_plot(eemss[1:9], spp=9, contour = TRUE)
 - Several values from the absorbancy data are negative. Will this cause problems??? 
 ```{r Correct for IFE, message = FALSE, warning=FALSE, fig.cap="EEMs corrected for blanks and inner filter effects"}
 eemsss <- eem_ife_correction(eemss,absorbance, cuvl = 1)
-eem_overview_plot(eemsss[1:9], spp=9, contour = TRUE)
+#eem_overview_plot(eemsss[1:9], spp=9, contour = TRUE)
 ```
 
 # 5) Raman normalization
 - could the negative abosrbance data cause problems here?
 ```{r Raman normalisation, message = FALSE, warning=FALSE, fig.cap="EEMs corrected for blanks and inner filter effects, and Raman normalised"}
 eemsssy <- eem_raman_normalisation2(eemsss, blank = "blank")
-eem_overview_plot(eemsssy[1:9], spp=9, contour = TRUE)
+#eem_overview_plot(eemsssy[1:9], spp=9, contour = TRUE)
 
 # ALTENRATIVE Raman normalization
 # because of negative values. Will try alternative-manual way
@@ -122,7 +122,7 @@ eemsc <- eem_rem_scat(eemb, remove_scatter = remove_scatter, remove_scatter_widt
 #interpolate the removed datapoints
 #different methods are available for interpretting .recommends to start with no 1
 eemint <- eem_interp(eemsc, type = 1, extend = FALSE)
-eem_overview_plot(eemint, spp=9, contour = TRUE)
+#eem_overview_plot(eemint, spp=9, contour = TRUE)
 ```
 
 # 8) Taking a look at the blanks
