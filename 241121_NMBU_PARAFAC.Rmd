@@ -1,8 +1,10 @@
 ---
 title: "241121_PARAFAC_NMBU"
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 date: "2024-11-21"
-editor_options: 
+editor_options:
   chunk_output_type: console
 ---
 
@@ -10,31 +12,34 @@ editor_options:
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-Here follows an analysis of EEM data from NMBU, based on the script from the 1000 lakes. 
-The data consists of sampples from a lake:
+Here follows an analysis of fluorescence EEM data from NMBU. 
+The data was produced from analysing GF filtered water samples from a lake, covering:
 - 60 samples from the top
 - 60 samples from the bottom
  
 Follow this procedure: https://cran.r-project.org/web/packages/staRdom/vignettes/PARAFAC_analysis_of_EEM.html#raman-normalisation
 
 QUESTIONS to NMBU
-- negative abs-values, likely to influence?
+* negative abs-values, likely to influence?
 - instrumental correction? likely not necessary
 - there might be some signal in the blanks - influential?
 - no dilutions performed?
 - ok to cut the area with the lowest ex wavelengths?
 
-```{r load required packages, include=FALSE}
+# Preparations
+Load required packages
+```{r Loading required packages required packages, message=FALSE, warning=FALSE}
 Packages <- c("staRdom", "dplyr", "tidyr", "data.table", "reshape")
 #"libwgeom",
 lapply(Packages, library, character.only = TRUE)
 cores <- detectCores(logical = FALSE)
 ```
 
-```{r set data directory and read fluorescence data}
+Set directories and load data, and check that the lengts are similar
+```{r set data directory and read fluorescence data, fig.cap= "Uncorrected EEMs"}
 folder = "C:/Users/CBG/OneDrive - NIVA/1 Projects/NMBU_PARAFAC/PARAFAC_filer"
 eem_list <- eem_read(folder, import_function = "cary", recursive = TRUE)
-#eem_overview_plot(eem_list, spp=9, contour = TRUE)
+eem_overview_plot(eem_list[1:9], spp=9, contour = TRUE)
 
 #Absorbance data
 absorbance_dir="C:/Users/CBG/OneDrive - NIVA/1 Projects/NMBU_PARAFAC/Abs_GF_Data_parafac.csv" 
@@ -47,52 +52,53 @@ length(eem_list)
 ncol(absy)
 nrow(meta)
 ```
-#1) Absorbance wavenegth correction
-```{r}
+
+# 1) Absorbance wavenegth correction
+```{r absorbance wavenength correction}
 absorbance <- abs_blcor(absy,wlrange = c(680,700))
 ```
 
-#Check the data for inconsistencies 
-- seems ok
-```{r Check the data for inconsistencies }
-length(eem_list)
-summary(eem_list)
+## Check the data for inconsistencies 
+- seems ok (output from test not plotted here)
+```{r Check the data for inconsistencies, message = FALSE}
+#summary(eem_list)
 nrow(meta)
-
-problem <- eem_checkdata(eem_list,absorbance, metadata=meta)
+#problem <- eem_checkdata(eem_list,absorbance, metadata=meta)
 ```
 
-#2) Spectral correction with instrument file??
-#excorr file made from 3x rhodamineB at 550nm while the emcorr is fake to make the function run
-IS THIS NECESSARY??? CHECK! some instruments can do this automaticallye
-```{r Spectral corrections}
-excorfile= "C:/Users/CBG/OneDrive - NIVA/1 Projects/1000 Lakes fEEM Data/DOM-1000-lake-PARAFAC/Data/RhodamineB_ex correction.txt"
-Excorr <- data.table::fread(excorfile)
-emcorfile = "C:/Users/CBG/OneDrive - NIVA/1 Projects/1000 Lakes fEEM Data/DOM-1000-lake-PARAFAC/Data/Ex correction_fake.txt"
-Emcorr <- data.table::fread(emcorfile)
-eem_listc <- eem_spectral_cor(eem_list,Excorr, Emcorr)
+# 2) Spectral correction with instrument file (not done)
+- is this necessary for the instrument at NMBU?
+- at NIVA we used, for excorr, measurements from a rhodamineB standard solution at 550nm while nothing for the emcorr 
+
+```{r Spectral corrections, include = FALSE}
+#excorfile= "C:/Users/CBG/OneDrive - NIVA/1 Projects/1000 Lakes fEEM Data/DOM-1000-lake-PARAFAC/Data/RhodamineB_ex #correction.txt"
+#Excorr <- data.table::fread(excorfile)
+#emcorfile = "C:/Users/CBG/OneDrive - NIVA/1 Projects/1000 Lakes fEEM Data/DOM-1000-lake-PARAFAC/Data/Ex #correction_fake.txt"
+#Emcorr <- data.table::fread(emcorfile)
+#eem_listc <- eem_spectral_cor(eem_list,Excorr, Emcorr)
 #eem_overview_plot(eem_list, spp=9, contour = TRUE)
 ```
 
 # 3) Blank subtraction. 
-```{r Blank correction}
+```{r Blank correction, message = FALSE, fig.cap="EEMs blank corrected"}
 eemss <- eem_remove_blank(eem_list)
 length(eemss)
-#eem_overview_plot(eemss, spp=9, contour = TRUE)
+eem_overview_plot(eemss[1:9], spp=9, contour = TRUE)
 ```
 
-# 4) Inner filter effect correction using absorption data not exceeding 2.0 and any wavelength. 
-No abs data for blanks -> produces warnings
-Flere absverdier er negative - skaper det problemer?? 
-```{r Correct for IFE}
+# 4) Inner filter effect correction using absorption data 
+- all abs data must be below 2.0 at any wavelength (else, dilution). 
+- Several values from the absorbancy data are negative. Will this cause problems??? 
+```{r Correct for IFE, message = FALSE, warning=FALSE, fig.cap="EEMs corrected for blanks and inner filter effects"}
 eemsss <- eem_ife_correction(eemss,absorbance, cuvl = 1)
-#eem_overview_plot(eemsss, spp=9, contour = TRUE)
+eem_overview_plot(eemsss[1:9], spp=9, contour = TRUE)
 ```
-#5) Raman normalization
-SJEKK HER HVORFOR ALTERNATIV METODE - OG HVA ER BEST HER?? NOE MED NEGATIVE ABS-VERDIER SOM ER TILFELLET HER
-```{r}
+
+# 5) Raman normalization
+- could the negative abosrbance data cause problems here?
+```{r Raman normalisation, message = FALSE, warning=FALSE, fig.cap="EEMs corrected for blanks and inner filter effects, and Raman normalised"}
 eemsssy <- eem_raman_normalisation2(eemsss, blank = "blank")
-eem_overview_plot(eemsssy, spp=9, contour = TRUE)
+eem_overview_plot(eemsssy[1:9], spp=9, contour = TRUE)
 
 # ALTENRATIVE Raman normalization
 # because of negative values. Will try alternative-manual way
@@ -106,10 +112,11 @@ eemb <- eem_extract(eemsssy, c("nano", "miliq", "milliq", "mq", "blank", "Blank"
 absorbance <- dplyr::select(absorbance, -matches("nano|miliq|milliq|mq|blank|Blank", ignore.case = TRUE))
 ```
 # 7) Remove and interpolate scattering
-- seems ok with regards to the raman and reyighelys
-```{r}
+- seems ok with regards to the Raman and Rayleigh
+```{r Remove and interpolate scattering, fig.cap="EEMs corrected for blanks and inner filter effects, Raman normalised and scattering removed and interpolated"}
+eem_overview_plot(eemb[1:9], spp=9, contour = TRUE)
 remove_scatter <- c(TRUE, TRUE, TRUE, TRUE)
-remove_scatter_width <- c(13,12,12,13) #is either a number or a vector of wavelength width in nm
+remove_scatter_width <- c(15,15,15,15) #is either a number or a vector of wavelength width in nm. “raman1”, “raman2”, “rayleigh1” and “rayleigh2”
 eemsc <- eem_rem_scat(eemb, remove_scatter = remove_scatter, remove_scatter_width = remove_scatter_width)
 
 #interpolate the removed datapoints
@@ -117,10 +124,11 @@ eemsc <- eem_rem_scat(eemb, remove_scatter = remove_scatter, remove_scatter_widt
 eemint <- eem_interp(eemsc, type = 1, extend = FALSE)
 eem_overview_plot(eemint, spp=9, contour = TRUE)
 ```
-# Looking at the blanks
-since the blanks are used both for subtraction and making Raman area, it is worth looking into. Some might be strange. 
-There is signal at the shorter ex wavelengths and em 300-400 nm
-```{r looking at blanks}
+
+# 8) Taking a look at the blanks
+- since the blanks are used both for subtraction and making Raman area, it is worth looking into. 
+- There is a signal at the shorter ex wavelengths and em 300-400 nm
+```{r looking at blanks, message = FALSE, fig.cap="EEMs of the blanks with scattering removed and interpolated"}
 #looking at the blanks
 #Finding LOQ
 blanks <- eem_extract(eem_list, c("nano", "miliq", "milliq", "mq", "blank", "Blank"),keep = TRUE)
@@ -131,64 +139,42 @@ blanks4 <- blanks3 %>%
 
 eem_overview_plot(blanks4, spp=9, contour = TRUE)
 
+#could be considered if LOQ is needed
+#bix <- eem_biological_index(blanks)
+#coble_peaks <- eem_coble_peaks(blanks)
+#fi <- eem_fluorescence_index(blanks)
+#hix <- eem_humification_index(blanks, scale = TRUE)
 
-bix <- eem_biological_index(blanks)
-coble_peaks <- eem_coble_peaks(blanks)
-fi <- eem_fluorescence_index(blanks)
-hix <- eem_humification_index(blanks, scale = TRUE)
+#indices_peaks <- bix %>%
+#  full_join(coble_peaks, by = "sample") %>%
+#  full_join(fi, by = "sample") %>%
+#  full_join(hix, by = "sample")
 
-indices_peaks <- bix %>%
-  full_join(coble_peaks, by = "sample") %>%
-  full_join(fi, by = "sample") %>%
-  full_join(hix, by = "sample")
+#indices_peaks
 
-indices_peaks
+#barplot(indices_peaks$a)
 
-barplot(indices_peaks$a)
-
-LOQ <- 10*sd(indices_peaks$a[1:10])
-LOQ
-
-#FOR THE SAMPLES
-#Remove blanks and stdevs
-eem_listC <- eem_extract(eem_list, c("nano", "miliq", "milliq", "mq", "blank", "Blank"),ignore_case = TRUE)
-eem_listC2 <- eem_extract(eem_listC, c("STD"),ignore_case = TRUE)
-
-bix <- eem_biological_index(eem_listC2)
-coble_peaks <- eem_coble_peaks(eem_listC2)
-fi <- eem_fluorescence_index(eem_listC2)
-hix <- eem_humification_index(eem_listC2, scale = TRUE)
-
-indices_peaksX <- bix %>%
-  full_join(coble_peaks, by = "sample") %>%
-  full_join(fi, by = "sample") %>%
-  full_join(hix, by = "sample")
-
-length(indices_peaksX)
-length(eem_listC2)
-toolow <- subset(indices_peaksX, a < 44)
-
-nrow(toolow)
-toolow$sample
-length(toolow)
+#LOQ <- 10*sd(indices_peaks$a[1:10])
+#LOQ
 ```
 
-#print a summary table of the samples, ranges, and corrections that have been done
-```{r}
+# 9) print a summary table of the samples 
+- wavelength ranges, and corrections that have been done
+```{r Summary}
 summary(eemint)
 ```
-#kutter ex området til 250 nm for å fjerne støy
-```{r}
+
+# 10) Remove noisy area at low wavelength excitation 
+```{r Remove noisy area, fig.cap="EEMS corrected and noisy area removed"}
 eemint4 <- eemint %>% eem_range(ex = c(250,Inf), em = c(300,580))
-#eem_overview_plot(eem_list4[1:12], spp=4, contour = TRUE)
+#eem_overview_plot(eemint4, spp=9, contour = TRUE)
 ```
 
-# Peak picking
-- smooting can be performed prior to peak picking
-suggest to make one with and one without smoothing
-- from a quick look at BIX there are no big differences between the smoothed and the non-smoothed
+# 11) Peak picking
+- smoothing can be performed prior to peak picking (not donw here)
+  - from a quick look at BIX there are no big differences between the smoothed and the non-smoothed
 
-```{r peak picking}
+```{r peak picking, message = FALSE, warning=FALSE}
 #WITHOUT SMOOTHING
 bix <- eem_biological_index(eemint4)
 coble_peaks <- eem_coble_peaks(eemint4)
@@ -203,318 +189,22 @@ indices_peaks <- bix %>%
 #combine with data and depth column from metadata
 met <- data.table::fread("C:/Users/CBG/OneDrive - NIVA/1 Projects/NMBU_PARAFAC/241121_NMBU_PARAFAC_Metadata.txt", sep = "\t")
 
+#merging with date from other dataset
 df_merge <- merge(indices_peaks, met, by = "sample", 
                   all.x = TRUE) 
 
 write.csv(df_merge,"C:/Users/CBG/OneDrive - NIVA/1 Projects/NMBU_PARAFAC/Output/NMBU_indices and peaks_NOsmooth.csv", row.names = FALSE)
 ```
 
-```{r smoothing and then peaks}
-#SMOOTHING
-#eemint4smooth <- eem_smooth(eemint4, n = 4, cores = cores)
+```{r plot Coble indices, fig.cap="BIX"}
+df_merge$date_analysis<-as.Date(df_merge$date_analysis,format="%d.%m.%Y")
 
-#WITH SMOOTHING
-#bix <- eem_biological_index(eemint4smooth)
-#coble_peaks <- eem_coble_peaks(eemint4smooth)
-#fi <- eem_fluorescence_index(eemint4smooth)
-#hix <- eem_humification_index(eemint4smooth, scale = TRUE)
-
-#indices_peaks_smooth <- bix %>%
-#  full_join(coble_peaks, by = "sample") %>%
-#  full_join(fi, by = "sample") %>%
-#  full_join(hix, by = "sample")
-
-#df_mergeS <- merge(indices_peaks_smooth, met, by = "sample", 
-                  all.x = TRUE) 
-
-#write.csv(df_mergeS,"C:/Users/CBG/OneDrive - NIVA/1 Projects/NMBU_PARAFAC/Output/NMBU_indices and peaks_SMOOTH.csv", row.names = FALSE)
-```
-
-
-HAVE NOT DONE THE FOLLOWING, SKIPPED TO #11)
-# 10)Visually find irregularities manually replac e by NA and interpolate
-Found several with signal in low bottom left corner. Contamination? Also a few with strange looking signal, but most likely signal close to zero. 
-```{r try to remove "protein-like" contamination}
-#This cant be done since it interfers with ssample signal elsewhere
-#eem_list3x <- eem_setNA(eem_list3, ex =250:300 , em = 250:350, interpolate = 1)
-#eemlist3x <- eem_list3 %>% eem_range(ex = c(250,Inf), em = c(0,580))
-```
-
-Have not been done: Remove noise, with focus on 2 region
-```{r}
-eem_list7x <- eem_list7 %>%
-  eem_setNA(sample = "DOM11950", ex = 250:275, em=300:350, interpolate = TRUE) %>%
-  eem_setNA(sample = "DOM12758", ex = 250:275, em = 300:375, interpolate = TRUE)%>%
-  eem_setNA(sample = "DOM13115", ex = 225:275, em = 350:400, interpolate = TRUE)%>%
-  eem_setNA(sample = "DOM12695", ex = 250:295, em = 300:375, interpolate = TRUE)%>%
-  eem_setNA(sample = "DOM12117", ex = 250:300, em = 300:350, interpolate = TRUE)%>%
-  eem_setNA(sample = "DOM12089", ex = 260:285, em = 300:325, interpolate = TRUE)%>%
-  eem_setNA(sample = "DOM12864", ex = 250:275, em = 310:325, interpolate = TRUE)%>%
-  eem_setNA(sample = "DOM11552", ex = 250:275, em = 300:350, interpolate = TRUE)%>%
-  eem_setNA(sample = "DOM11537", ex = 250:275, em = 300:350, interpolate = TRUE)%>%
-  eem_setNA(sample = "DOM11389", ex = 260:280, em = 300:340, interpolate = TRUE)%>%
-  eem_setNA(sample = "DOM11378", ex = 260:280, em = 340:360, interpolate = TRUE) #usikker
+class(df_merge$date_analysis)
+ggplot(df_merge, aes(x=date_analysis, y=bix, fill=lake_layer))+
+  geom_col(position = position_dodge2(width = 0.4, reverse=TRUE))+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  coord_cartesian(ylim = c(0.3, 0.7))
+  
 
 ```
-
-#11) First attempt PARAFAC model
- minimum and maximum of numbers of components
-```{r}
-dim_min <- 3
-dim_max <- 7
-
-nstart <- 25 # number of similar models from which best is chosen
-maxit = 5000 # maximum number of iterations in PARAFAC analysis
-ctol <- 10^-6 # tolerance in PARAFAC analysis
-```
-
-```{r}
-pf1 <- eem_parafac(eemint4, comps = seq(dim_min,dim_max), normalise = FALSE, const = c("nonneg", "nonneg", "nonneg"), maxit = maxit, nstart = nstart, ctol = ctol, cores = cores)
-eempf_compare(pf1, contour = TRUE)
-```
-# rescale B and C modes to a maximum fluorescence of 1 for each component
-```{r}
-pf1n <- lapply(pf1, eempf_rescaleBC, newscale = "Fmax")
-eempf_compare(pf1n, contour = TRUE)
-```
-- har muligens mest tro på modellen med 5 komponenter
-
-From first look it appears to be 4 clean and likely components. There might be 5 or 6 but then it looks like there is something needing cleaning. Or, try with higher PARAFAC resolution? from the guide online we can select 5 or 6. 
-
-#check for correlation between the components
-#for a wide range of DOC values, correlation is likely. Then normalise
-#The number indicates which model to look at
-- there appear to be correlation between the components so selects normalisation
-```{r check for correlation}
-eempf_cortable(pf1n[[3]], normalisation = FALSE)
-eempf_corplot(pf1n[[3]], progress = FALSE, normalisation = FALSE)
-```
-
-#Normalise to reduce correlation between components
-#wide range of DOC among samples normally require this step
-```{r normalise}
-pf2 <- eem_parafac(eemint4, comps = seq(dim_min,dim_max), normalise = TRUE, const = c("nonneg", "nonneg", "nonneg"), maxit = maxit, nstart = nstart, ctol = ctol, cores = cores)
-# rescale B and C modes
-pf2nx <- lapply(pf2, eempf_rescaleBC, newscale = "Fmax")
-eempf_compare(pf2nx, contour = TRUE, normalise=FALSE)
-```
-
-#Set normalisation TRUE if you want to see the actual data
-```{r}
-eempf_cortable(pf2nx[[3]], normalisation = FALSE)
-eempf_corplot(pf2nx[[3]], progress = FALSE, normalisation = FALSE)
-#eempf_compare(pf2nx, contour = TRUE, normalisation=FALSE)
-#eempf_plot_comps(pf2, contour = TRUE, type = 1)
-```
-
-#Find and exclude outlier leverages
-- plot leverage (nice plot)
-- plot leverage, not so nice plot but interactive to select what to exclude
-- saved in exclude, can be used to start over again with eem_list_ex <- eem_list %>% eem_exclude(exclude) above
-- NOt all potential outliers from leverage plot are potential outliers from the other plot. 
-```{r calculate leverage}
-cpl <- eempf_leverage(pf2nx[[3]])
-#cpl <- eempf_leverage(pf3n[[2]])
-
-eempf_leverage_plot(cpl,qlabel=0.1)
-#exclude <- eempf_leverage_ident(cpl,qlabel=0.1)
-
-```
-
-should remove sample obenGF317!
-
-```{r PLot leverage of potential outliers}
-eempf_residuals_plot(pf2nx[[3]], eemint4, residuals_only = TRUE, select = c("obenGF317"), spp = 6, cores = cores, contour = TRUE)
-
-# samples, excitation and emission wavelengths to exclude, makes sense after calculation of leverage
-exclude <- list("ex" = c(),
-                "em" = c(),
-                "sample" = c("obenGF317")
-)
-
-# exclude outliers if neccessary. if so, restart analysis
-eem_list_ex <- eem_exclude(eemint4, exclude)
-
-```
-
-#remake model - quick
-```{r}
-pf3 <- eem_parafac(eem_list_ex, comps = seq(dim_min,dim_max), normalise = TRUE, const = c("nonneg", "nonneg", "nonneg"), maxit = maxit, nstart = nstart, ctol = ctol, cores = cores)
-# rescale B and C modes
-pf3nx <- lapply(pf3, eempf_rescaleBC, newscale = "Fmax")
-eempf_compare(pf3nx, contour = TRUE, normalise=FALSE)
-
-cpl <- eempf_leverage(pf3nx[[3]])
-
-eempf_leverage_plot(cpl,qlabel=0.1)
-#exclude <- eempf_leverage_ident(cpl,qlabel=0.1) #sample obenGF164?
-eempf_residuals_plot(pf3nx[[3]], eem_list_ex, residuals_only = TRUE, select = c("obenGF164"), spp = 6, cores = cores, contour = TRUE)
-
-```
-beholder obenGF164 for nå! eventuelt revisit
-
-#Remake the PARAFAC MODEL
-FORTSETT HER!!!! GIR DE MENING ELLER BØR DET RYDDES OPP MER? F EKS SE TILBAKE PÅ SIGNAL I BLANKENE OG PÅ RESIDUALS. KAN VÆRE BEHOV FOR LITT MER OPPRYDNING. SE NÆRMERE PÅ PRØVENE. 
-```{r Re-make PARAFAC model}
-ctol <- 10^-8     # decrease tolerance in PARAFAC analysis
-nstart = 20        # increase number of random starts
-maxit = 10000      # increase number of maximum interations
-
-pf4fc <- eem_parafac(eem_list_ex, comps = 5, normalise = TRUE, const = c("nonneg", "nonneg", "nonneg"), maxit = maxit, nstart = nstart, ctol = ctol, cores = cores, output="all")
-pf4fnc <- lapply(pf4fc, eempf_rescaleBC, newscale = "Fmax")
-eempf_compare(pf4fnc, contour = TRUE, normalise=FALSE)
-
-summary(pf4fnc)
-#something on the importance of each component
-b <- eempf_varimp(pf4fnc[[1]], eem_list7, cores = 2)
-b
-
-#eempf_comp_load_plot(pf4fnc[[1]], contour = TRUE)
-ggeem(pf4fnc[[1]], contour = TRUE)
-```
-
-```{r CHeking and plotting the model}
-#leverages, outliers?
-cplx <- eempf_leverage(pf4fnc[[1]])
-eempf_leverage_plot(cplx,qlabel=0.1)
-
-#residuals, if samples appear suspect from the leverage check
-#eempf_residuals_plot(pf4fnc[[1]], eem_list7, residuals_only = TRUE, select = c("DOM11856","DOM12210"), spp = 6, #cores = cores, contour = TRUE)
-
-#plot model
-eempf_comp_load_plot(pf4fnc[[1]], contour = TRUE)
-
-#Check the convergence behaviour of the created models:
-eempf_convergence(pf4fnc[[1]])
-
-#plot residuals - working?
-eempf_residuals_plot(pf4fnc[[1]], eem_list_ex, select = eem_names(eem_list_ex)[10:14], cores = cores, contour = TRUE) #HER ER DET OGSÅ VERDT Å TA EN EKSTRA TITT!!! SER UT SOM EN DEL RESIDUALS OG KANSKJE COMP5 IKKE ER EKTE?
-
-#Plot the resulting components and loadings
-eempf_comp_load_plot(pf4fc[[1]], contour = TRUE)
-#eempf_residuals_plot(pf4f[[1]], eem_list6, cores = cores, contour = TRUE)
-
-#SPlit-half analysis
-sh <- splithalf(eem_list_ex, 5, normalise = TRUE, rand = TRUE, cores = cores, nstart = nstart, maxit = maxit, ctol = ctol) #HER MÅ DET OGSÅ VURDERES!
-splithalf_plot(sh)
-
-#Tucker’s congruency coefficient 
-tcc_sh_table <- splithalf_tcc(sh)
-tcc_sh_table
-
-#converging models
-eempf_convergence(pf4fc[[1]])
-```
-
-#To create output file
-```{r}
-eempf_openfluor(pf4fn[[1]], file = "220924_100Lakes_NEWUVVisdata.txt")
-eempf_openfluor(pf3[[3]], file = "221010_100Lakes_NEWUVVisdata.txt")
-
-eempf_openfluor(pf4fnc[[1]], file = "221219_100Lakes_OLDC.txt")
-eempf_openfluor(pf4fc[[1]], file = "221211_100Lakes_OLDC2.txt")
-```
-
-```{r}
-#To create output file
-# 9)depending on instrument used, smoothing can be perforemd prior to peak picking, but should not be done prior to PARAFAC
-eem4peaks <- eem_smooth(eem_list4, n = 4)
-#PEAK PICKING AND INDICES, make sure to use the interpolated version of the data
-library(eemR)
-bix <- eem_biological_index(eem_list4)
-coble_peaks <- eem_coble_peaks(eem_list4)
-fi <- eem_fluorescence_index(eem_list4)
-hix <- eem_humification_index(eem_list4, scale = TRUE)
-
-#using smoothed data
-bix <- eem_biological_index(eem4peaks)
-coble_peaks <- eem_coble_peaks(eem4peaks)
-fi <- eem_fluorescence_index(eem4peaks)
-hix <- eem_humification_index(eem4peaks, scale = TRUE)
-
-indices_peaks <- bix %>%
-  full_join(coble_peaks, by = "sample") %>%
-  full_join(fi, by = "sample") %>%
-  full_join(hix, by = "sample")
-
-head(indices_peaks)
-
-write.csv(indices_peaks, "C:/Users/CBG/R/Projects/100 lakes StarDOM/Output/210629_BlanksAsSamples_indexesSmoothed.csv")
-```
-
-
-# 9)depending on instrument used, smoothing can be perforemd prior to peak picking, but should not be done prior to PARAFAC
-eem4peaks <- eem_smooth(eem_list5, n = 4)
-#PEAK PICKING AND INDICES, make sure to use the interpolated version of the data
-library(eemR)
-bix <- eem_biological_index(eem_list5)
-coble_peaks <- eem_coble_peaks(eem_list5)
-fi <- eem_fluorescence_index(eem_list5)
-hix <- eem_humification_index(eem_list5, scale = TRUE)
-
-#using smoothed data
-bix <- eem_biological_index(eem4peaks)
-coble_peaks <- eem_coble_peaks(eem4peaks)
-fi <- eem_fluorescence_index(eem4peaks)
-hix <- eem_humification_index(eem4peaks, scale = TRUE)
-
-indices_peaks <- bix %>%
-  full_join(coble_peaks, by = "sample") %>%
-  full_join(fi, by = "sample") %>%
-  full_join(hix, by = "sample")
-
-head(indices_peaks)
-
-write.csv(indices_peaks, "C:/Users/CBG/R/Output/200819_ALL_noRamannorm_indexes.csv")
-
-#To add TOC values, the sample ID must be coupled to station id
-setwd("C:/Users/CBG/R/Projects/100 lakes StarDOM/")
-d2 <- read.table("Provenavn.txt", sep = "\t", header = TRUE)
-d2$sample = d2$Prøvenr
-head(d2)
-
-newtable <- merge(indices_peaks,d2, by  = "sample") 
-head(newtable)
-newtable <- newtable[, -c(1)]
-
-#Add TOC data and Abs data from file produced for James
-setwd("C:/Users/CBG/R/Projects/100 lakes StarDOM/Absorbency spectra")
-d1 <- read.table("1000Lakes_Abs (002)_to James.txt", sep = "\t", header = TRUE)
-head(d1)
-
-newtable2 <- merge(newtable,d1, by  = "Stasjonskode") 
-head(newtable2)
-
-#set columns to keep
-new <- newtable2[,c(1:9, 11, 13, 14:19, 22, 24:31)]
-head(new)
-write.csv(new, "C:/Users/CBG/R/Output/200819_ALL_noRamannorm_indexes.csv")
-
-
-#Correlation matrix
-library("PerformanceAnalytics")
-my_data <- new[, c(2,3,4,5,6,7, 8, 9, 20, 22, 23, 24, 25, 26)]
-chart.Correlation(my_data, histogram=TRUE, pch=19)
-
-#look at correlation between two variables
-library("ggpubr")
-ggscatter(new, x = "TOC", y = "Abs254", 
-          add = "reg.line", conf.int = TRUE, 
-          cor.coef = TRUE, cor.method = "pearson",
-          xlab = "", ylab = "")
-
-nrow(new)
-write.csv(Dx, "//niva-of5/osl-userdata$/CBG/Documents/R/Projects/100 lakes StarDOM/Output/200805_EEMindices.csv")
-
-#Absorbance index calculation
-slope_parms <- abs_parms(absorbance, cuvl = 1)
-head(slope_parms)
-
-#connect with the rest
-slope_parms$Prøvenr.x = slope_parms$sample
-
-new2 <- merge(new,slope_parms, by  = "Prøvenr.x") 
-head(new2)
-write.csv(slope_parms, "//niva-of5/osl-userdata$/CBG/Documents/R/Projects/100 lakes StarDOM/Output/200421_abs_indices.csv")
-
 

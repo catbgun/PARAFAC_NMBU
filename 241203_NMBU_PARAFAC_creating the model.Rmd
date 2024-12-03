@@ -1,0 +1,221 @@
+---
+title: "NMBU PARAFAC_creating the model"
+output: pdf_document
+date: "2024-12-03"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Creating a PARAFAC model
+The data has now been uploaded and preprocessed, and indices and Coble peaks been calculated. 
+
+Load required packages
+```{r Loading required packages required packages, message=FALSE, warning=FALSE}
+Packages <- c("staRdom", "dplyr", "tidyr", "data.table", "reshape")
+#"libwgeom",
+lapply(Packages, library, character.only = TRUE)
+cores <- detectCores(logical = FALSE)
+```
+Note that from the preprocessing, from inner filter correction, it appeared that several of the samples should have been diluted prior to analysis. See warning messages. Only "unten" samples. 
+
+## Looking for noise 
+```{r looking for noise}
+eem_overview_plot(eemint4, spp=9, contour = TRUE)
+```
+
+Samples looking a bit strange, something around 400nm/400nm. Will it affect the model? is it due to poor scatter removal?
+-untenGF65
+-untenGF317
+-untenGF297
+-obenGF297
+-untenGF277
+-untenGF28
+-untenGF288
+-untenGF257
+-untenGF268
+-untenGF237
+-untenGF217
+-untenGF197
+-untenGF167
+
+```{r remove noise at around 400/400}
+eem_list %>% 
+  eem_extract(sample = c("untenGF97", "untenGF99", "untenGF88", "untenGF69", "untenGF68", "untenGF48", "untenGF317", "untenGF297", "untenGF288", "untenGF28", "untenGF277", "untenGF268", "untenGF257", "untenGF239", "untenGF237", "untenGF217", "untenGF198", "untenGF168", "untenGF167", "untenGF148", "untenGF139", "untenGF128", "untenGF114", "untenGF117",
+                         "obenGF317", "obenGF297", "obenGF197", "obenGF167"), keep = TRUE) %>%
+  ggeem(contour = TRUE)
+
+eem_list <- eemint4 %>%
+  eem_setNA(ex = 375:430, em = 400:430, interpolate = TRUE) 
+
+eem_overview_plot(eem_list, spp=9, contour = TRUE)
+length(eem_list)
+```
+
+
+
+# 1) First attempt PARAFAC model
+minimum and maximum of numbers of components
+```{r}
+dim_min <- 3
+dim_max <- 7
+
+nstart <- 25 # number of similar models from which best is chosen
+maxit = 5000 # maximum number of iterations in PARAFAC analysis
+ctol <- 10^-6 # tolerance in PARAFAC analysis
+```
+
+```{r}
+pf1 <- eem_parafac(eemint4, comps = seq(dim_min,dim_max), normalise = FALSE, const = c("nonneg", "nonneg", "nonneg"), maxit = maxit, nstart = nstart, ctol = ctol, cores = cores)
+eempf_compare(pf1, contour = TRUE)
+```
+
+From the model fit: 4 components or more
+Visual inspection of the components is easier in the normalised version next
+
+# rescale B and C modes to a maximum fluorescence of 1 for each component
+```{r}
+pf1n <- lapply(pf1, eempf_rescaleBC, newscale = "Fmax")
+eempf_compare(pf1n, contour = TRUE)
+```
+
+- looks like there might be some strange signal in the 400/400 region for some of the components. Perhaps worth going back to remove that region. 
+- several aspects with the excitation and emission spectral lines that do not make sense. May need to go back to clean up. Or may improve with a more refined model. 
+
+#check for correlation between the components
+#for a wide range of DOC values, correlation is likely. Then normalise
+#The number indicates which model to look at
+- there appear to be correlation between the components so selects normalisation
+```{r check for correlation}
+eempf_cortable(pf1n[[3]], normalisation = FALSE)
+eempf_corplot(pf1n[[3]], progress = FALSE, normalisation = FALSE)
+```
+
+#Normalise to reduce correlation between components
+#wide range of DOC among samples normally require this step
+```{r normalise}
+pf2 <- eem_parafac(eemint4, comps = seq(dim_min,dim_max), normalise = TRUE, const = c("nonneg", "nonneg", "nonneg"), maxit = maxit, nstart = nstart, ctol = ctol, cores = cores)
+# rescale B and C modes
+pf2nx <- lapply(pf2, eempf_rescaleBC, newscale = "Fmax")
+eempf_compare(pf2nx, contour = TRUE, normalise=FALSE)
+```
+
+#Set normalisation TRUE if you want to see the actual data
+```{r}
+eempf_cortable(pf2nx[[3]], normalisation = FALSE)
+eempf_corplot(pf2nx[[3]], progress = FALSE, normalisation = FALSE)
+#eempf_compare(pf2nx, contour = TRUE, normalisation=FALSE)
+#eempf_plot_comps(pf2, contour = TRUE, type = 1)
+```
+
+#Find and exclude outlier leverages
+- plot leverage (nice plot)
+- plot leverage, not so nice plot but interactive to select what to exclude
+- saved in exclude, can be used to start over again with eem_list_ex <- eem_list %>% eem_exclude(exclude) above
+- NOt all potential outliers from leverage plot are potential outliers from the other plot. 
+```{r calculate leverage}
+cpl <- eempf_leverage(pf2nx[[3]])
+#cpl <- eempf_leverage(pf3n[[2]])
+
+eempf_leverage_plot(cpl,qlabel=0.1)
+#exclude <- eempf_leverage_ident(cpl,qlabel=0.1)
+
+```
+
+should remove sample obenGF317!
+  
+  ```{r PLot leverage of potential outliers}
+eempf_residuals_plot(pf2nx[[3]], eemint4, residuals_only = TRUE, select = c("obenGF317"), spp = 6, cores = cores, contour = TRUE)
+
+# samples, excitation and emission wavelengths to exclude, makes sense after calculation of leverage
+exclude <- list("ex" = c(),
+                "em" = c(),
+                "sample" = c("obenGF317")
+)
+
+# exclude outliers if neccessary. if so, restart analysis
+eem_list_ex <- eem_exclude(eemint4, exclude)
+
+```
+
+#remake model - quick
+```{r}
+pf3 <- eem_parafac(eem_list_ex, comps = seq(dim_min,dim_max), normalise = TRUE, const = c("nonneg", "nonneg", "nonneg"), maxit = maxit, nstart = nstart, ctol = ctol, cores = cores)
+# rescale B and C modes
+pf3nx <- lapply(pf3, eempf_rescaleBC, newscale = "Fmax")
+eempf_compare(pf3nx, contour = TRUE, normalise=FALSE)
+
+cpl <- eempf_leverage(pf3nx[[3]])
+
+eempf_leverage_plot(cpl,qlabel=0.1)
+#exclude <- eempf_leverage_ident(cpl,qlabel=0.1) #sample obenGF164?
+eempf_residuals_plot(pf3nx[[3]], eem_list_ex, residuals_only = TRUE, select = c("obenGF164"), spp = 6, cores = cores, contour = TRUE)
+
+```
+beholder obenGF164 for nå! eventuelt revisit
+
+#Remake the PARAFAC MODEL
+FORTSETT HER!!!! GIR DE MENING ELLER BØR DET RYDDES OPP MER? F EKS SE TILBAKE PÅ SIGNAL I BLANKENE OG PÅ RESIDUALS. KAN VÆRE BEHOV FOR LITT MER OPPRYDNING. SE NÆRMERE PÅ PRØVENE. 
+```{r Re-make PARAFAC model}
+ctol <- 10^-8     # decrease tolerance in PARAFAC analysis
+nstart = 20        # increase number of random starts
+maxit = 10000      # increase number of maximum interations
+
+pf4fc <- eem_parafac(eem_list_ex, comps = 5, normalise = TRUE, const = c("nonneg", "nonneg", "nonneg"), maxit = maxit, nstart = nstart, ctol = ctol, cores = cores, output="all")
+pf4fnc <- lapply(pf4fc, eempf_rescaleBC, newscale = "Fmax")
+eempf_compare(pf4fnc, contour = TRUE, normalise=FALSE)
+
+summary(pf4fnc)
+#something on the importance of each component
+b <- eempf_varimp(pf4fnc[[1]], eem_list7, cores = 2)
+b
+
+#eempf_comp_load_plot(pf4fnc[[1]], contour = TRUE)
+ggeem(pf4fnc[[1]], contour = TRUE)
+```
+
+```{r CHeking and plotting the model}
+#leverages, outliers?
+cplx <- eempf_leverage(pf4fnc[[1]])
+eempf_leverage_plot(cplx,qlabel=0.1)
+
+#residuals, if samples appear suspect from the leverage check
+#eempf_residuals_plot(pf4fnc[[1]], eem_list7, residuals_only = TRUE, select = c("DOM11856","DOM12210"), spp = 6, #cores = cores, contour = TRUE)
+
+#plot model
+eempf_comp_load_plot(pf4fnc[[1]], contour = TRUE)
+
+#Check the convergence behaviour of the created models:
+eempf_convergence(pf4fnc[[1]])
+
+#plot residuals - working?
+eempf_residuals_plot(pf4fnc[[1]], eem_list_ex, select = eem_names(eem_list_ex)[10:14], cores = cores, contour = TRUE) #HER ER DET OGSÅ VERDT Å TA EN EKSTRA TITT!!! SER UT SOM EN DEL RESIDUALS OG KANSKJE COMP5 IKKE ER EKTE?
+
+#Plot the resulting components and loadings
+eempf_comp_load_plot(pf4fc[[1]], contour = TRUE)
+#eempf_residuals_plot(pf4f[[1]], eem_list6, cores = cores, contour = TRUE)
+
+#SPlit-half analysis
+sh <- splithalf(eem_list_ex, 5, normalise = TRUE, rand = TRUE, cores = cores, nstart = nstart, maxit = maxit, ctol = ctol) #HER MÅ DET OGSÅ VURDERES!
+splithalf_plot(sh)
+
+#Tucker’s congruency coefficient 
+tcc_sh_table <- splithalf_tcc(sh)
+tcc_sh_table
+
+#converging models
+eempf_convergence(pf4fc[[1]])
+```
+
+#To create output file
+```{r}
+eempf_openfluor(pf4fn[[1]], file = "220924_100Lakes_NEWUVVisdata.txt")
+eempf_openfluor(pf3[[3]], file = "221010_100Lakes_NEWUVVisdata.txt")
+
+eempf_openfluor(pf4fnc[[1]], file = "221219_100Lakes_OLDC.txt")
+eempf_openfluor(pf4fc[[1]], file = "221211_100Lakes_OLDC2.txt")
+```
+
