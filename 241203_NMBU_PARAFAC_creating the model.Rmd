@@ -10,41 +10,30 @@ editor_options:
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## Creating a PARAFAC model
+# Creating a PARAFAC model
 The data has now been uploaded and preprocessed, and indices and Coble peaks been calculated. 
-
-Load required packages
+Note that from the preprocessing, from inner filter correction, it appeared that several of the samples should have been diluted prior to analysis. See warning messages. Only "unten" samples. 
 ```{r Loading required packages required packages, message=FALSE, warning=FALSE}
 Packages <- c("staRdom", "dplyr", "tidyr", "data.table", "reshape")
 #"libwgeom",
 lapply(Packages, library, character.only = TRUE)
 cores <- detectCores(logical = FALSE)
 ```
-Note that from the preprocessing, from inner filter correction, it appeared that several of the samples should have been diluted prior to analysis. See warning messages. Only "unten" samples. 
 
-## Looking for noise 
+## 1) Looking for noise 
 ```{r looking for noise}
-eem_overview_plot(eemint4, spp=9, contour = TRUE)
+# Restore the object
+eemint4 <- readRDS(file = "NMBU_PARAFAC_datset.rds")
+eem_overview_plot(eemint4[1:9], spp=9, contour = TRUE)
 ```
+Taking a visual inspection of all sample EEMS. 
+Several samples looks strange at around ex/em 400/400 nm, for example sample untenGF117 in figure 
+This region should be removed and the signal interpolated. 
 
-Samples looking a bit strange, something around 400nm/400nm. Will it affect the model? is it due to poor scatter removal?
--untenGF65
--untenGF317
--untenGF297
--obenGF297
--untenGF277
--untenGF28
--untenGF288
--untenGF257
--untenGF268
--untenGF237
--untenGF217
--untenGF197
--untenGF167
+Plotting all samples with such strange signal.
 
+Tried to remove and interpolate the region, but did not manage... This region has been found to influence the model components so should be removed. Consider also other regions. 
 
-Taking a look at the samples with strange signal at around ex=400 nm and em= 425nm
-Tried to remove and interpolate the region, but did not managage... This region was later found to influence the model components so should be removed. Consider also other regions. 
 ```{r remove noise at around 400/400}
 #taking a look at those samples with 
 eemint4 %>% 
@@ -55,7 +44,7 @@ eemint4 %>%
 
 eem_list <- eemint4 %>%
   eem_setNA(sample = c("untenGF97", "untenGF99", "untenGF88", "untenGF69", "untenGF68", "untenGF48", "untenGF317", "untenGF297", "untenGF288", "untenGF28", "untenGF277", "untenGF268", "untenGF257", "untenGF239", "untenGF237", "untenGF217", "untenGF198", "untenGF168", "untenGF167", "untenGF148", "untenGF139", "untenGF128", "untenGF114", "untenGF117",
-                         "obenGF317", "obenGF297", "obenGF197", "obenGF167"), ex = 375:430, em= 400:450, interpolate = FALSE) %>%
+                         "obenGF317", "obenGF297", "obenGF197", "obenGF167"), ex = 375:430, em= 400:450, interpolate = TRUE) %>%
   eem_setNA(em= 400:450, interpolate = TRUE)
 
 eem_list %>% 
@@ -64,9 +53,8 @@ eem_list %>%
   ggeem(contour = TRUE) 
 
 ```
-
-
-# 1) First attempt PARAFAC model
+ 
+## 1) First attempt PARAFAC model - quick
 First attempt to find approximate number of components before a more refined model is created. 
 ```{r}
 dim_min <- 3
@@ -95,9 +83,7 @@ eempf_compare(pf1n, contour = TRUE)
 - looks like there might be some strange signal in the 400/400 region for some of the components. Perhaps worth going back to remove that region. 
 - several aspects with the excitation and emission spectral lines that do not make sense. May need to go back to clean up. Or may improve with a more refined model. 
 
-#check for correlation between the components
-#for a wide range of DOC values, correlation is likely. Then normalise
-#The number indicates which model to look at
+## 2) check for correlation between the components
 - there appear to be correlation between the components so selects normalisation
 ```{r check for correlation}
 eempf_cortable(pf1n[[3]], normalisation = FALSE)
@@ -105,8 +91,8 @@ eempf_corplot(pf1n[[3]], progress = FALSE, normalisation = FALSE)
 ```
 - high correlation between some of the components, normalisation should be done
 
-#Normalise to reduce correlation between components
-#wide range of DOC among samples normally require this step
+Normalise to reduce correlation between components
+wide range of DOC among samples normally require this step
 ```{r normalise}
 pf2 <- eem_parafac(eem_list, comps = seq(dim_min,dim_max), normalise = TRUE, const = c("nonneg", "nonneg", "nonneg"), maxit = maxit, nstart = nstart, ctol = ctol, cores = cores)
 # rescale B and C modes
@@ -122,7 +108,7 @@ eempf_corplot(pf2nx[[3]], progress = FALSE, normalisation = FALSE)
 #eempf_plot_comps(pf2, contour = TRUE, type = 1)
 ```
 
-#Find and exclude outlier leverages
+## 3) Find and exclude outlier leverages
 - plot leverage (nice plot)
 - plot leverage, not so nice plot but interactive to select what to exclude
 - saved in exclude, can be used to start over again with eem_list_ex <- eem_list %>% eem_exclude(exclude) above
@@ -152,8 +138,7 @@ exclude <- list("ex" = c(),
 eem_list_ex <- eem_exclude(eem_list, exclude)
 ```
 
-
-#remake model - quick
+## 4) Remake the model - quick
 ```{r}
 pf3 <- eem_parafac(eem_list_ex, comps = seq(dim_min,dim_max), normalise = TRUE, const = c("nonneg", "nonneg", "nonneg"), maxit = maxit, nstart = nstart, ctol = ctol, cores = cores)
 # rescale B and C modes
@@ -167,9 +152,9 @@ eempf_leverage_plot(cpl,qlabel=0.1)
 eempf_residuals_plot(pf3nx[[3]], eem_list_ex, residuals_only = TRUE, select = c("obenGF164"), spp = 6, cores = cores, contour = TRUE)
 
 ```
-beholder obenGF164 for nå! eventuelt revisit
+decided to keep sample obenGF164 for mow, may need to revisit. 
 
-#Remake the PARAFAC MODEL
+## 5) Remake the PARAFAC MODEL - refined
 - likely need for more cleanup? 
 - the excitation and emission lines does not look right.. 
 ```{r Re-make PARAFAC model}
@@ -190,6 +175,12 @@ b
 ggeem(pf4fnc[[1]], contour = TRUE)
 ```
 
+If some splits look similar (or see below, have a Tucker’s congruency coefficient close to 1) and others do not, this is a strong hint that the particular splits or the values for maxit and nstart might be responsible for unstable conditions. Problems can be caused by splitting the data according to natural differences (e.g. sampling date A and sampling date B) which will then lead to different PARAFAC models. 
+
+### 3.1) Model validation
+There are different ways of checking the model. With natural DOM samples, it is very unlikely to "pass" all of the tests. An overall evaluation should be made. Also, each test has their pros and cons. 
+
+#### Leverages
 ```{r CHeking and plotting the model}
 #leverages, outliers?
 cplx <- eempf_leverage(pf4fnc[[1]])
@@ -204,8 +195,8 @@ eempf_comp_load_plot(pf4fnc[[1]], contour = TRUE)
 #Check the convergence behaviour of the created models:
 eempf_convergence(pf4fnc[[1]])
 
-#plot residuals - working?
-eempf_residuals_plot(pf4fnc[[1]], eem_list_ex, select = eem_names(eem_list_ex)[10:14], cores = cores, contour = TRUE) #HER ER DET OGSÅ VERDT Å TA EN EKSTRA TITT!!! SER UT SOM EN DEL RESIDUALS OG KANSKJE COMP5 IKKE ER EKTE?
+#plot residuals 
+eempf_residuals_plot(pf4fnc[[1]], eem_list_ex, select = eem_names(eem_list_ex), cores = cores, contour = TRUE) 
 
 #Plot the resulting components and loadings
 eempf_comp_load_plot(pf4fc[[1]], contour = TRUE)
@@ -225,10 +216,7 @@ eempf_convergence(pf4fc[[1]])
 
 #To create output file
 ```{r}
-eempf_openfluor(pf4fn[[1]], file = "220924_100Lakes_NEWUVVisdata.txt")
-eempf_openfluor(pf3[[3]], file = "221010_100Lakes_NEWUVVisdata.txt")
+eempf_openfluor(pf4fc[[1]], file = "241204_NMBU_PARAFAC_initial test.txt")
 
-eempf_openfluor(pf4fnc[[1]], file = "221219_100Lakes_OLDC.txt")
-eempf_openfluor(pf4fc[[1]], file = "221211_100Lakes_OLDC2.txt")
 ```
 

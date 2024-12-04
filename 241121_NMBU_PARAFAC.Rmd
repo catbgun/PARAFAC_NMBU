@@ -208,3 +208,10 @@ ggplot(df_merge, aes(x=date_analysis, y=bix, fill=lake_layer))+
 
 ```
 
+Save the file ready for PARAFAC modelling
+```{r}
+# Save an object to a file
+saveRDS(eemint4, file = "NMBU_PARAFAC_datset.rds")
+
+```
+
